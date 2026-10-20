@@ -1,0 +1,22 @@
+{
+  "name": "voyager-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests for builds of Smithsonian DPO Voyager and Holusion's fork",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:core": "playwright test --project core",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "build-voyager": "scripts/build-voyager.sh",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  },
+  "license": "Apache-2.0"
+}

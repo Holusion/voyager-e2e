@@ -1,0 +1,63 @@
+name: End-to-end tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Voyager's branches move independently of this repository.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Voyager ${{ matrix.voyager }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Holusion's fork: shared and fork-specific behavior.
+          - voyager: master
+            args: --project core --project fork
+          # Upstream, as tracked by the fork: shared behavior only.
+          - voyager: upstream
+            args: --project core
+    env:
+      VOYAGER_DIST: .voyager/${{ matrix.voyager }}/dist
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Build Voyager ${{ matrix.voyager }}
+        run: scripts/build-voyager.sh https://github.com/Holusion/dpo-voyager ${{ matrix.voyager }} .voyager/${{ matrix.voyager }}
+
+      - name: Record the tested revision
+        run: echo "Voyager \`${{ matrix.voyager }}\` at $(git -C .voyager/${{ matrix.voyager }} rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+      - run: npx playwright test ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-${{ matrix.voyager }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
