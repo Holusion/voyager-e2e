@@ -3,7 +3,7 @@
 import { test, expect } from '../../src/fixtures.mjs';
 import { cubeGLB, sceneDocument } from '../../src/assets.mjs';
 
-function cameraDocument({ start, end, annotation = false }) {
+function cameraDocument({ start, end, exploration = start, annotation = false }) {
   const document = sceneDocument({ models: [{ derivatives: { High: 'cube.glb' },
     ...(annotation ? { annotations: [{ id: 'view', titles: { EN: 'Saved view' }, style: 'Standard',
       position: [0, 0, 1], direction: [0, 0, 1], viewId: 'end' }] } : {}),
@@ -11,7 +11,7 @@ function cameraDocument({ start, end, annotation = false }) {
   const setup = document.setups[0];
   setup.navigation.autoZoom = false;
   setup.navigation.orbit = {
-    orbit: [0, start, 0], offset: [0, 0, 10],
+    orbit: [0, exploration, 0], offset: [0, 0, 10],
     minOrbit: [-90, null, null], maxOrbit: [90, null, null],
     minOffset: [null, null, 0.1], maxOffset: [null, null, 1000],
   };
@@ -29,28 +29,33 @@ function cameraDocument({ start, end, annotation = false }) {
   return document;
 }
 
-for (const { start, end, nearest } of [
-  { start: 170, end: -170, nearest: 190 },
-  { start: -170, end: 170, nearest: -190 },
+for (const { start, end, exploration } of [
+  { start: 10, end: 730, exploration: 350 },
+  { start: -10, end: -730, exploration: -350 },
 ]) {
-  test(`successive tour steps keep the short orbit across ${start} to ${end} degrees`, async ({ site, mount }) => {
-    site.set('scene.svx.json', cameraDocument({ start, end })).set('cube.glb', cubeGLB());
+  test(`tour entry retains the saved turn, then preserves ${end - start} authored degrees`, async ({ site, mount }) => {
+    site.set('scene.svx.json', cameraDocument({ start, end, exploration })).set('cube.glb', cubeGLB());
     const explorer = await mount({ document: 'scene.svx.json', prompt: 'false' });
     await explorer.waitForEvents('scene-load');
 
-    // Sample the expected pose using the same public API, without assuming the
-    // getter's angle units/order (which differ between Voyager's code and docs).
-    await explorer.call('setCameraOrbit', '0', String(nearest));
-    const expected = await explorer.call('getCameraOrbit');
+    // Sample through the public API without assuming the getter's angle units/order.
+    await explorer.call('setCameraOrbit', '0', String(end));
+    const expectedEnd = await explorer.call('getCameraOrbit');
     await explorer.call('setCameraOrbit', '0', String(start));
-    await explorer.call('setTourStep', '0', '0', false);
+    const expectedStart = await explorer.call('getCameraOrbit');
+    await explorer.call('setCameraOrbit', '0', String(exploration));
+
+    // Entry may take a short arc, but must finish on the authored angle's turn.
+    // Otherwise the subsequent two-turn transition would lose a complete turn.
+    await explorer.call('setTourStep', '0', '0', true);
     await expect.poll(() => explorer.call('getCameraOffset')).toEqual([0, 0, 12]);
+    expect(await explorer.call('getCameraOrbit')).toEqual(expectedStart);
 
     await explorer.call('setTourStep', '0', '1', true);
-    // Offset 20 is only reached at the destination. Once reached, the unwrapped
-    // orbit records which arc was taken, even when a slow frame skips the animation.
+    // The distinct offset witnesses completion, even when a slow frame skips
+    // intermediate poses. No frame count, delay or angular sample is needed.
     await expect.poll(() => explorer.call('getCameraOffset')).toEqual([0, 0, 20]);
-    expect(await explorer.call('getCameraOrbit')).toEqual(expected);
+    expect(await explorer.call('getCameraOrbit')).toEqual(expectedEnd);
   });
 }
 
@@ -68,10 +73,11 @@ test('playing an annotation view preserves its saved orbit for instant tour reca
   await label.getByText('Saved view').press('Enter');
   await explorer.waitForEvents('annotation-active');
   await expect.poll(() => explorer.call('getCameraOffset')).toEqual([0, 0, 20]);
-  // The animated pose may use an equivalent angle one full turn away. That must
-  // not rewrite the saved snapshot, also referenced by this tour step.
-  expect(await explorer.call('getCameraOrbit')).not.toEqual(saved);
+  // Animated playback and instant recall end on the same authored turn, without
+  // rewriting the saved snapshot shared by the annotation and tour step.
+  expect(await explorer.call('getCameraOrbit')).toEqual(saved);
 
+  await explorer.call('setCameraOrbit', '0', '350');
   await explorer.call('setTourStep', '0', '1', false);
   await expect.poll(() => explorer.call('getCameraOrbit')).toEqual(saved);
 });
