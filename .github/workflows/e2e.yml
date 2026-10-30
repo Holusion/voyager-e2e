@@ -82,6 +82,15 @@ jobs:
             build: base
             ref: upstream
             args: --project core
+          # Annotation views and tour entries share one shortest-path camera transition.
+          - change: rotation-moduli
+            build: change
+            ref: rotation-moduli
+            args: --project core
+          - change: rotation-moduli
+            build: base
+            ref: upstream
+            args: --project core
     env:
       VOYAGER_DIST: .voyager/${{ matrix.build }}/dist
       VOYAGER_UNMERGED: ${{ matrix.build == 'base' && format('@pending:{0}', matrix.change) || '' }}
