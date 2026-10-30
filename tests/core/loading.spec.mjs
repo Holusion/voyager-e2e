@@ -140,3 +140,22 @@ test('lang attribute holds while its translations download', async ({ site, moun
   await expect(explorer.locator('.sv-main-title')).toHaveText('Cube FR');
   expect(await explorer.call('getActiveLanguage')).toBe('FR');
 });
+
+test('swaps the document while a model is still downloading', { tag: '@pending:loading-states' }, async ({ site, mount }) => {
+  site.set('first.svx.json', sceneDocument({ models: [{ derivatives: { High: 'first.glb' } }] }));
+  site.set('second.svx.json', sceneDocument({ models: [{ derivatives: { High: 'second.glb' } }] }));
+  site.set('first.glb', cubeGLB()).set('second.glb', cubeGLB());
+  const first = site.hold('first.glb');
+
+  const explorer = await mount({ document: 'first.svx.json' });
+  await expect.poll(() => first.requests, { message: 'first model requested' }).toBeGreaterThan(0);
+
+  // Changing the attribute drops the first document, its model still downloading.
+  await explorer.element.evaluate(element => element.setAttribute('document', 'second.svx.json'));
+
+  // The first model never loads: this is the second one. Abandoning the first model's
+  // download happens on the swap itself, long before the second document is even read.
+  await explorer.waitForEvents('model-load');
+  await expect(explorer.spinner).toBeHidden();
+  expect((await explorer.modelCoverage()).center).toBeGreaterThan(0.9);
+});
