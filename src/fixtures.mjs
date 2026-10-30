@@ -73,6 +73,14 @@ export const test = base.extend({
 
   baseURL: async ({ voyager }, use) => use(voyager.origin),
 
+  // VOYAGER_UNMERGED=<tag>: this build lacks the change tagged so (e.g. @pending:audio-durations),
+  // whose tests must then fail. Otherwise they don't test it, or it got merged.
+  unmerged: [async ({}, use, testInfo) => {
+    const tag = process.env.VOYAGER_UNMERGED;
+    testInfo.fail(!!tag && testInfo.tags.includes(tag), `this build lacks ${tag}`);
+    await use();
+  }, { auto: true }],
+
   /** Files this test serves to Voyager. Use it as Explorer's `root`. */
   site: async ({ voyager }, use) => {
     const site = voyager.createSite();

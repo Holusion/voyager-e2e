@@ -36,9 +36,34 @@ There is deliberately no upstream-only suite. A behavior the fork doesn't suppor
 
 A test belongs to `core` when it passes on upstream. Upstream changes it doesn't share yet are not tested until the fork merges them.
 
+## Pending changes
+
+Tests can cover a Voyager change before it is merged. Write them where they will stay, tagged `@pending:<change>`, for instance a whole file:
+
+```js
+test.describe('audio narration', { tag: '@pending:audio-durations' }, () => { … });
+```
+
+They fail on builds lacking the change. Leave them out with `--grep-invert @pending`, or pick them with `--grep`:
+
+```sh
+VOYAGER_DIST=.voyager/master/dist npm test -- --grep-invert @pending
+VOYAGER_DIST=.voyager/audio-durations/dist npm test -- --grep @pending:audio-durations
+```
+
+`VOYAGER_UNMERGED=<tag>` says the build lacks the change, whose tests are then expected to fail. That proves they detect what the change fixes:
+
+```sh
+VOYAGER_DIST=.voyager/upstream/dist VOYAGER_UNMERGED=@pending:audio-durations npm test -- --grep @pending:audio-durations
+```
+
+Once the change is merged, remove the tag.
+
 ## Continuous integration
 
-`.github/workflows/e2e.yml` builds the fork's `master` (runs `core` and `fork`) and `upstream` (runs `core`) from `Holusion/dpo-voyager`. It runs on every push to `main`, every pull request, on demand, and daily, because Voyager's branches change independently of this repository. Each job's summary records the Voyager commit it tested. Reports and traces are uploaded when a job fails.
+`.github/workflows/e2e.yml` builds the fork's `master` (runs `core` and `fork`) and `upstream` (runs `core`) from `Holusion/dpo-voyager`, leaving pending tests out. It runs on every push to `main`, every pull request, on demand, and daily, because Voyager's branches change independently of this repository. Each job's summary records the Voyager commit it tested. Reports and traces are uploaded when a job fails.
+
+Its `pending` job builds each pending change, to run its tests and the others, and the change's base, where its tests must fail. Once the change is merged, they pass on the base too, which fails the job: remove their tag and the change's entries from the job's matrix.
 
 ## How it works
 
