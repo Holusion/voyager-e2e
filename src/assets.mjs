@@ -75,8 +75,17 @@ function glb(gltf, binary) {
  *   one entry per model, mapping a derivative quality ("Thumb", "Low", "High"...) to an asset URI.
  * @param {Record<string, string>} [options.titles] scene title per language, e.g. `{ EN: "Cube" }`.
  * @param {string} [options.language] the setup's initial language.
+ * @param {Array<{id: string, uris: Record<string, string>}>} [options.audio]
+ *   audio clips, each mapping a language to an asset URI, e.g. `{ id: 'intro', uris: { EN: 'intro.wav' } }`.
+ * @param {string} [options.narration] the id of the clip the main menu plays as the scene's narration.
  */
-export function sceneDocument({ models, titles, language }) {
+export function sceneDocument({ models, titles, language, audio, narration }) {
+  const meta = {
+    ...(titles ? { collection: { titles } } : {}),
+    ...(audio ? { audio: audio.map(clip => ({ name: clip.id, captionUris: {}, ...clip })) } : {}),
+  };
+  const hasMeta = Object.keys(meta).length > 0;
+
   const nodes = [
     { name: 'Camera', camera: 0 },
     { name: 'Lights', children: [2, 3] },
@@ -93,7 +102,7 @@ export function sceneDocument({ models, titles, language }) {
   return {
     asset: { type: 'application/si-dpo-3d.document+json', version: '1.0', generator: 'voyager-e2e' },
     scene: 0,
-    scenes: [{ units: 'cm', nodes: sceneNodes, setup: 0, ...(titles ? { meta: 0 } : {}) }],
+    scenes: [{ units: 'cm', nodes: sceneNodes, setup: 0, ...(hasMeta ? { meta: 0 } : {}) }],
     nodes,
     cameras: [{ type: 'perspective', perspective: { yfov: 52, znear: 0.1, zfar: 1000 }, autoNearFar: true }],
     lights: [
@@ -107,7 +116,7 @@ export function sceneDocument({ models, titles, language }) {
       })),
       ...(annotations ? { annotations } : {}),
     })),
-    ...(titles ? { metas: [{ collection: { titles } }] } : {}),
+    ...(hasMeta ? { metas: [meta] } : {}),
     setups: [{
       units: 'cm',
       interface: { visible: true, logo: false, menu: true, tools: true },
@@ -118,6 +127,33 @@ export function sceneDocument({ models, titles, language }) {
       floor: { visible: false },
       grid: { visible: false },
       ...(language ? { language: { language } } : {}),
+      ...(narration ? { audio: { narrationId: narration } } : {}),
     }],
   };
+}
+
+/**
+ * A mono 16-bit PCM WAV sine tone. Every browser decodes WAV, and its header gives the duration.
+ */
+export function toneWAV({ seconds = 10, frequency = 440, sampleRate = 8000 } = {}) {
+  const samples = Math.round(seconds * sampleRate);
+  const data = Buffer.alloc(samples * 2);
+  for (let i = 0; i < samples; i++) {
+    data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * frequency * i / sampleRate) * 0x0fff), i * 2);
+  }
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16); // fmt chunk size
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28); // bytes per second
+  header.writeUInt16LE(2, 32); // bytes per frame
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write('data', 36);
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
 }
