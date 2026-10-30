@@ -19,9 +19,9 @@ npm run build-voyager -- https://github.com/Holusion/dpo-voyager upstream .voyag
 VOYAGER_DIST=.voyager/upstream/dist npm run test:core
 ```
 
-`VOYAGER_DIST` points to any built `dist` directory, for example a local checkout's own `dist/` after `npm run build-prod`. The production bundle (`js/voyager-explorer.min.js`) is used if present, otherwise the development one. Set `VOYAGER_BUNDLE=js/voyager-explorer.dev.js` to choose explicitly.
+`VOYAGER_DIST` points to any built `dist` directory, for example a local checkout's own `dist/` after `npm run build-dev`. The development bundle (`js/voyager-explorer.dev.js`) is used if present, for its readable errors, otherwise the production one. `npm run test:prod` tests the production bundle (`js/voyager-explorer.min.js`), which `scripts/build-voyager.sh` builds when given `prod` or `both` as its last argument. `VOYAGER_BUNDLE` picks any other bundle of the build.
 
-`scripts/build-voyager.sh <repository> <ref> <directory>` accepts anything `git fetch` does. With a local clone, remote branches work too, e.g. `../dpo-voyager refs/remotes/origin/master`.
+`scripts/build-voyager.sh <repository> <ref> <directory> [dev|prod|both]` accepts anything `git fetch` does. With a local clone, remote branches work too, e.g. `../dpo-voyager refs/remotes/origin/master`.
 
 Debugging: `npm run test:headed`, `npm run report`, or `npx playwright show-trace` on the trace kept for every failure.
 

@@ -11,6 +11,7 @@
     "test": "playwright test",
     "test:core": "playwright test --project core",
     "test:headed": "playwright test --headed",
+    "test:prod": "VOYAGER_BUNDLE=js/voyager-explorer.min.js playwright test",
     "report": "playwright show-report",
     "build-voyager": "scripts/build-voyager.sh",
     "install:browsers": "playwright install chromium"

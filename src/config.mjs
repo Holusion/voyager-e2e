@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-// Production bundle first: it is what gets deployed.
-const bundles = ['js/voyager-explorer.min.js', 'js/voyager-explorer.dev.js'];
+// Development bundle first: its errors are readable. The production one is what gets deployed.
+const bundles = ['js/voyager-explorer.dev.js', 'js/voyager-explorer.min.js'];
 
 export function configuration(env = process.env) {
   if (!env.VOYAGER_DIST) {
