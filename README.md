@@ -57,7 +57,7 @@ VOYAGER_DIST=.voyager/audio-durations/dist npm test -- --grep @pending:audio-dur
 VOYAGER_DIST=.voyager/upstream/dist VOYAGER_UNMERGED=@pending:audio-durations npm test -- --grep @pending:audio-durations
 ```
 
-Once the change is merged, remove the tag.
+Once the change is merged, remove the tag. Until then its tests stay out of the regular jobs, so a stale tag fails nothing: it only leaves those tests unused.
 
 `@fork-pending` marks upstream behavior the fork doesn't have yet, until its next merge of upstream. These tests run against upstream only; leave them out when testing the fork:
 
@@ -71,7 +71,7 @@ The fork's failures are not expected failures: they may be intermittent. Once th
 
 `.github/workflows/e2e.yml` builds the fork's `master` (runs `core` and `fork`, without `@fork-pending`) and `upstream` (runs `core`) from `Holusion/dpo-voyager`, leaving pending tests out. It runs on every push to `main`, every pull request, on demand, and daily, because Voyager's branches change independently of this repository. Each job's summary records the Voyager commit it tested. Reports and traces are uploaded when a job fails.
 
-Its `pending` job builds each pending change, to run its tests and the others, and the change's base, where its tests must fail. Once the change is merged, they pass on the base too, which fails the job: remove their tag and the change's entries from the job's matrix.
+Pending changes aren't tracked by CI: this repository doesn't follow Voyager's branches in lockstep. `.github/workflows/pending.yml` checks one on demand (*Run workflow* in GitHub's Actions tab, or `gh workflow run pending.yml -f change=<change>`). It builds the change, given by its repository and ref (by default the fork's branch named after the change), to run the change's tests and the others, and its base (by default `upstream`; leave it empty to skip), where the change's tests must fail. For instance, `-f change=rc-68 -f repository=https://github.com/Smithsonian/dpo-voyager -f base=master`.
 
 ## How it works
 

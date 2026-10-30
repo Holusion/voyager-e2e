@@ -1,0 +1,75 @@
+name: Pending change
+
+# Tests tagged @pending:<change> cover a Voyager change not merged yet. On demand, they run against
+# the change, where they must pass along with the others, and against its base, where they must fail.
+on:
+  workflow_dispatch:
+    inputs:
+      change:
+        description: Tests to run, tagged @pending:<change>
+        required: true
+      repository:
+        description: Repository holding the change
+        default: https://github.com/Holusion/dpo-voyager
+      ref:
+        description: The change's ref (defaults to <change>)
+      base:
+        description: Ref of the same repository lacking the change (empty to skip)
+        default: upstream
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.build }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        build: ${{ fromJSON(inputs.base && '["change", "base"]' || '["change"]') }}
+    env:
+      REF: ${{ matrix.build == 'base' && inputs.base || inputs.ref || inputs.change }}
+      CHANGE: ${{ inputs.change }}
+      VOYAGER_DIST: .voyager/${{ matrix.build }}/dist
+      VOYAGER_UNMERGED: ${{ matrix.build == 'base' && format('@pending:{0}', inputs.change) || '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Build Voyager ${{ env.REF }}
+        id: build
+        run: scripts/build-voyager.sh "$REPOSITORY" "$REF" .voyager/${{ matrix.build }}
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+
+      - name: Record the tested revision
+        run: echo "Voyager \`$REF\` (${{ matrix.build }} of $CHANGE) at $(git -C .voyager/${{ matrix.build }} rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tests of ${{ inputs.change }}
+        run: npx playwright test --project core --grep "@pending:$CHANGE"
+
+      # The change must not break what already works.
+      - name: Other tests
+        if: matrix.build == 'change' && !cancelled() && steps.build.outcome == 'success'
+        run: npx playwright test --project core --grep-invert @pending --output test-results/others
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/others
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-pending-${{ matrix.build }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
