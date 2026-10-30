@@ -34,7 +34,7 @@ Debugging: `npm run test:headed`, `npm run report`, or `npx playwright show-trac
 
 There is deliberately no upstream-only suite. A behavior the fork doesn't support isn't tested, rather than tested only upstream.
 
-A test belongs to `core` when it passes on upstream. Upstream changes it doesn't share yet are not tested until the fork merges them.
+A test belongs to `core` when it passes on upstream. Upstream changes the fork doesn't share yet are tagged `@fork-pending` until the fork merges them.
 
 ## Pending changes
 
@@ -57,13 +57,21 @@ VOYAGER_DIST=.voyager/audio-durations/dist npm test -- --grep @pending:audio-dur
 VOYAGER_DIST=.voyager/upstream/dist VOYAGER_UNMERGED=@pending:audio-durations npm test -- --grep @pending:audio-durations
 ```
 
-Once the change is merged, remove the tag.
+Once the change is merged, remove the tag. Until then its tests stay out of the regular jobs, so a stale tag fails nothing: it only leaves those tests unused.
+
+`@fork-pending` marks upstream behavior the fork doesn't have yet, until its next merge of upstream. These tests run against upstream only; leave them out when testing the fork:
+
+```sh
+VOYAGER_DIST=.voyager/master/dist npm test -- --grep-invert "@pending|@fork-pending"
+```
+
+The fork's failures are not expected failures: they may be intermittent. Once the fork has merged upstream, check that the tests pass there and remove the tag.
 
 ## Continuous integration
 
-`.github/workflows/e2e.yml` builds the fork's `master` (runs `core` and `fork`) and `upstream` (runs `core`) from `Holusion/dpo-voyager`, leaving pending tests out. It runs on every push to `main`, every pull request, on demand, and daily, because Voyager's branches change independently of this repository. Each job's summary records the Voyager commit it tested. Reports and traces are uploaded when a job fails.
+`.github/workflows/e2e.yml` builds the fork's `master` (runs `core` and `fork`, without `@fork-pending`) and `upstream` (runs `core`) from `Holusion/dpo-voyager`, leaving pending tests out. It runs on every push to `main`, every pull request, on demand, and daily, because Voyager's branches change independently of this repository. Each job's summary records the Voyager commit it tested. Reports and traces are uploaded when a job fails.
 
-Its `pending` job builds each pending change, to run its tests and the others, and the change's base, where its tests must fail. Once the change is merged, they pass on the base too, which fails the job: remove their tag and the change's entries from the job's matrix.
+Pending changes aren't tracked by CI: this repository doesn't follow Voyager's branches in lockstep. `.github/workflows/pending.yml` checks one on demand (*Run workflow* in GitHub's Actions tab, or `gh workflow run pending.yml -f change=<change>`). It builds the change, given by its repository and ref (by default the fork's branch named after the change), to run the change's tests and the others, and its base (by default `upstream`; leave it empty to skip), where the change's tests must fail. For instance, `-f change=rc-68 -f repository=https://github.com/Smithsonian/dpo-voyager -f base=master`.
 
 ## How it works
 
@@ -73,7 +81,7 @@ Each Playwright worker starts a small HTTP server (`src/server.mjs`) on loopback
 - a host page embedding nothing but the Explorer bundle.
 - one isolated *site* per test, holding the documents and models that test generated (`src/assets.mjs`). Fixtures are built in code: a flat-colored cube and complete scene documents, so each test states what it loads.
 
-A site can *hold* requests to a file until the test releases them. Loading tests use that to put Voyager in a precise intermediate state, e.g. "thumbnail displayed, high quality pending", for as long as needed, without timers.
+A site can *hold* requests to a file until the test releases them. Loading tests use that to put Voyager in a precise intermediate state, e.g. "thumbnail displayed, high quality pending", for as long as needed, without timers. A site also serves Voyager's own resources (`site.resources`, to use as `resourceRoot`), so a test can hold those too, e.g. a translation.
 
 Chromium renders WebGL with SwiftShader, so results don't depend on a GPU. Its DNS resolves nothing but `127.0.0.1`, so a test can't silently depend on the network.
 
@@ -101,5 +109,6 @@ Guidelines, learned from building this suite:
 - Wait on events, request gates or Playwright's auto-retrying assertions, never on fixed delays.
 - Check that a new test passes on upstream *and* the fork before putting it in `core`, and that a `fork` test fails on upstream. Otherwise it belongs in `core`.
 - Assert what is documented or user-visible. When Voyager and its documentation disagree, assert only what both agree on. `getCameraOrbit()` returns degrees as `[pitch, yaw]` while the docs say radians as `[yaw, pitch]`, so the orbit tests only compare values with each other.
+- Don't poll on screenshots (`modelCoverage()`): under load, taking one can outlast the poll's timeout. Wait for a witness first (an event, a label shown or hidden in the same update), then measure once. Tell models apart by color, not by where they land: Voyager reframes the camera when one hides.
 - Keep geometry out of assertions. Annotation labels can land anywhere on screen, so they are activated with the keyboard, which goes through the same code path as a click.
 - Before trusting a new test, break the behavior it covers and check that the test fails.

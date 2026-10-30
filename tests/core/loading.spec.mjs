@@ -1,7 +1,7 @@
 // Loading contracts, as documented in docs/content/explorer/api ("Events").
 // Model requests are held by the test server, so each intermediate state lasts as long as the test needs.
 import { test, expect } from '../../src/fixtures.mjs';
-import { cubeGLB, sceneDocument } from '../../src/assets.mjs';
+import { cubeGLB, sceneDocument, toneWAV } from '../../src/assets.mjs';
 
 const types = events => events.map(event => event.type);
 
@@ -105,4 +105,38 @@ test('reports a document that fails to load', async ({ mount }) => {
   await expect(explorer.locator('ff-notification')).toContainText('missing.svx.json');
   await expect(explorer.spinner).toBeHidden();
   expect(await explorer.events()).toEqual([]);
+});
+
+// Audio used to be fetched with the document: a missing file left the indicator spinning forever,
+// then threw. audio-durations no longer fetches it before it is played.
+test('a missing audio file holds no load back', { tag: ['@pending:audio-durations', '@fork-pending'] }, async ({ site, mount }) => {
+  site.set('scene.svx.json', sceneDocument({
+    models: [{ derivatives: { High: 'cube.glb' } }],
+    audio: [{ id: 'narration', uris: { EN: 'missing.wav' } }],
+    narration: 'narration',
+  }));
+  site.set('cube.glb', cubeGLB());
+
+  const explorer = await mount({ document: 'scene.svx.json' });
+
+  await explorer.waitForEvents('scene-load');
+  await expect(explorer.spinner).toBeHidden();
+});
+
+// The requested language wins, even when its translations arrive after the document set its own.
+// What shows while they download is not checked.
+test('lang attribute holds while its translations download', async ({ site, mount }) => {
+  site.set('scene.svx.json', sceneDocument({ titles: { EN: 'Cube', FR: 'Cube FR' }, language: 'EN', models: [{ derivatives: { High: 'cube.glb' } }] }));
+  site.set('cube.glb', cubeGLB());
+  const translations = site.hold('voyager/language/string.resources.fr.json');
+
+  const explorer = await mount({ document: 'scene.svx.json', lang: 'FR', resourceRoot: site.resources });
+  await explorer.waitForEvents('scene-load');
+  await expect.poll(() => translations.requests, { message: 'French translations requested' }).toBeGreaterThan(0);
+
+  translations.release();
+
+  await expect(explorer.locator('#fullscreen-btn')).toHaveAttribute('title', 'Plein écran');
+  await expect(explorer.locator('.sv-main-title')).toHaveText('Cube FR');
+  expect(await explorer.call('getActiveLanguage')).toBe('FR');
 });

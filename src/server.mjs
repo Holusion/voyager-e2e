@@ -39,10 +39,25 @@ export class Site {
   files = new Map();
   gates = new Map();
   #requests = new Map();
-  constructor(base) { this.base = base; }
+  #aborted = new Map();
+  #build;
+  /** `build(res, path)` serves a file of the Voyager build: the site serves the build under `voyager/`. */
+  constructor(base, build) {
+    this.base = base;
+    this.#build = build;
+  }
+
+  /**
+   * Voyager's own resources (fonts, images, translations), served from the site
+   * so a test can hold or count requests to them. Use it as Explorer's `resourceRoot`.
+   */
+  get resources() { return `${this.base}voyager/`; }
 
   /** How many requests reached `path`, held or not, served or not found. */
   requests(path) { return this.#requests.get(path) ?? 0; }
+
+  /** How many requests to `path` the browser gave up on before getting the whole response. */
+  aborted(path) { return this.#aborted.get(path) ?? 0; }
 
   /** Serve `body` at `path`. Objects are served as JSON. */
   set(path, body, type = types[extname(path)] ?? 'application/octet-stream') {
@@ -60,9 +75,11 @@ export class Site {
 
   async serve(path, req, res) {
     this.#requests.set(path, this.requests(path) + 1);
+    res.on('close', () => { if (!res.writableFinished) this.#aborted.set(path, this.aborted(path) + 1); });
     await this.gates.get(path)?.pass();
     if (res.destroyed) return;
     const file = this.files.get(path);
+    if (!file && path.startsWith('voyager/')) return this.#build(res, path.slice('voyager/'.length));
     if (!file) return send(res, 404, `Not found: ${path}`);
     sendRange(req, res, Buffer.from(file.body), file.type);
   }
@@ -140,7 +157,7 @@ voyager-explorer { display: block; width: 100%; height: 100%; }</style>
     origin,
     createSite() {
       const id = String(++count);
-      const site = new Site(`${origin}/sites/${id}/`);
+      const site = new Site(`${origin}/sites/${id}/`, serveFile);
       sites.set(id, site);
       return site;
     },
