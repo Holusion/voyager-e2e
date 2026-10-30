@@ -8,6 +8,7 @@ const types = {
   '.json': 'application/json', '.map': 'application/json', '.wasm': 'application/wasm', '.txt': 'text/plain',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.hdr': 'application/octet-stream',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.glb': 'model/gltf-binary',
+  '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.vtt': 'text/vtt',
 };
 
 function send(res, status, body = '', type = 'text/plain') {
@@ -37,7 +38,11 @@ class Gate {
 export class Site {
   files = new Map();
   gates = new Map();
+  #requests = new Map();
   constructor(base) { this.base = base; }
+
+  /** How many requests reached `path`, held or not, served or not found. */
+  requests(path) { return this.#requests.get(path) ?? 0; }
 
   /** Serve `body` at `path`. Objects are served as JSON. */
   set(path, body, type = types[extname(path)] ?? 'application/octet-stream') {
@@ -53,13 +58,36 @@ export class Site {
     return gate;
   }
 
-  async serve(path, res) {
+  async serve(path, req, res) {
+    this.#requests.set(path, this.requests(path) + 1);
     await this.gates.get(path)?.pass();
     if (res.destroyed) return;
     const file = this.files.get(path);
     if (!file) return send(res, 404, `Not found: ${path}`);
-    send(res, 200, file.body, file.type);
+    sendRange(req, res, Buffer.from(file.body), file.type);
   }
+}
+
+/**
+ * Answers single byte ranges, as browsers request them to stream and seek media.
+ * Anything else gets the whole body.
+ */
+function sendRange(req, res, body, type) {
+  const headers = { 'content-type': type, 'cache-control': 'no-store', 'accept-ranges': 'bytes' };
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  if (!range || (!range[1] && !range[2])) {
+    res.writeHead(200, { ...headers, 'content-length': body.length });
+    return res.end(req.method === 'HEAD' ? undefined : body);
+  }
+  // "bytes=-n" is the last n bytes.
+  const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2]));
+  const end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+  if (start > end) {
+    res.writeHead(416, { ...headers, 'content-range': `bytes */${body.length}` });
+    return res.end();
+  }
+  res.writeHead(206, { ...headers, 'content-length': end - start + 1, 'content-range': `bytes ${start}-${end}/${body.length}` });
+  res.end(req.method === 'HEAD' ? undefined : body.subarray(start, end + 1));
 }
 
 /**
@@ -97,7 +125,7 @@ voyager-explorer { display: block; width: 100%; height: 100%; }</style>
     if (pathname === '/favicon.ico') return send(res, 204);
     if (pathname.startsWith('/voyager/')) return serveFile(res, pathname.slice('/voyager/'.length));
     const site = /^\/sites\/(\d+)\/(.*)$/.exec(pathname);
-    if (site && sites.has(site[1])) return sites.get(site[1]).serve(site[2], res);
+    if (site && sites.has(site[1])) return sites.get(site[1]).serve(site[2], req, res);
     send(res, 404, `Not found: ${pathname}`);
   }
 
