@@ -37,29 +37,32 @@ export class Explorer {
   }
 
   /**
-   * Share of the view covered by the (orange) fixture model, overall and in the central ninth.
+   * Share of the view covered by the fixture model, overall and in the central ninth.
+   * The model is orange, or blue to tell two models apart (see `cubeGLB()`).
    * Deliberately coarse: it tells whether the model is on screen, not how it is shaded.
    */
-  async modelCoverage() {
+  async modelCoverage({ color = 'orange' } = {}) {
     const png = (await this.element.screenshot()).toString('base64');
-    return this.page.evaluate(async png => {
+    return this.page.evaluate(async ({ png, color }) => {
       const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
       const context = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
       context.drawImage(bitmap, 0, 0);
       const { data, width, height } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+      // However lit, orange keeps far more red than blue, and blue the reverse.
+      // Voyager's grey-blue backgrounds and UI do neither.
+      const sign = color === 'blue' ? -1 : 1;
       const coverage = (left, top, right, bottom) => {
         let model = 0, total = 0;
         for (let y = Math.floor(top * height); y < bottom * height; y++) {
           for (let x = Math.floor(left * width); x < right * width; x++, total++) {
             const i = (y * width + x) * 4;
-            // Orange, however lit, keeps far more red than blue. Voyager's backgrounds and UI don't.
-            if (data[i] - data[i + 2] > 80) model++;
+            if (sign * (data[i] - data[i + 2]) > 80) model++;
           }
         }
         return model / total;
       };
       return { view: coverage(0, 0, 1, 1), center: coverage(1 / 3, 1 / 3, 2 / 3, 2 / 3) };
-    }, png);
+    }, { png, color });
   }
 }
 

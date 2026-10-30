@@ -1,5 +1,8 @@
 // Synthetic fixtures, generated rather than checked in so every test states what it loads.
 
+/** A color for a second model, told apart from the default orange one by `Explorer.modelCoverage()`. */
+export const blue = [0, 0.3, 1, 1];
+
 /**
  * A binary glTF unit cube (2 units wide, centered on the origin) with one flat-colored material.
  * The default color is a saturated orange, easy to tell apart from Voyager's grey-blue backgrounds.
@@ -73,26 +76,32 @@ function glb(gltf, binary) {
  * @param {object} options
  * @param {Array<{derivatives: Record<string, string>, annotations?: object[]}>} options.models
  *   one entry per model, mapping a derivative quality ("Thumb", "Low", "High"...) to an asset URI.
+ *   Other properties (e.g. `slicerEnabled`) are copied to the model as they are.
  * @param {Record<string, string>} [options.titles] scene title per language, e.g. `{ EN: "Cube" }`.
  * @param {string} [options.language] the setup's initial language.
  * @param {Array<{id: string, uris: Record<string, string>}>} [options.audio]
  *   audio clips, each mapping a language to an asset URI, e.g. `{ id: 'intro', uris: { EN: 'intro.wav' } }`.
  * @param {string} [options.narration] the id of the clip the main menu plays as the scene's narration.
+ * @param {Array<{id: string, titles: Record<string, string>, uris: Record<string, string>}>} [options.articles]
+ *   the scene's articles, each mapping a language to its title and to an HTML asset URI.
+ * @param {boolean} [options.bare] leave the camera and lights out, as a document made by hand might.
+ *   Voyager then provides its own.
  */
-export function sceneDocument({ models, titles, language, audio, narration }) {
+export function sceneDocument({ models, titles, language, audio, narration, articles, bare = false }) {
   const meta = {
     ...(titles ? { collection: { titles } } : {}),
     ...(audio ? { audio: audio.map(clip => ({ name: clip.id, captionUris: {}, ...clip })) } : {}),
+    ...(articles ? { articles: articles.map(article => ({ uri: Object.values(article.uris)[0], ...article })) } : {}),
   };
   const hasMeta = Object.keys(meta).length > 0;
 
-  const nodes = [
+  const nodes = bare ? [] : [
     { name: 'Camera', camera: 0 },
     { name: 'Lights', children: [2, 3] },
     { name: 'Key', light: 0, rotation: [0.4829741, -0.1070728, 0.1880998, 0.8484633] },
     { name: 'Environment', light: 1 },
   ];
-  const sceneNodes = [0, 1];
+  const sceneNodes = bare ? [] : [0, 1];
   models.forEach((model, index) => {
     sceneNodes.push(nodes.length);
     // Spread models along X so each is visible.
@@ -104,17 +113,19 @@ export function sceneDocument({ models, titles, language, audio, narration }) {
     scene: 0,
     scenes: [{ units: 'cm', nodes: sceneNodes, setup: 0, ...(hasMeta ? { meta: 0 } : {}) }],
     nodes,
-    cameras: [{ type: 'perspective', perspective: { yfov: 52, znear: 0.1, zfar: 1000 }, autoNearFar: true }],
-    lights: [
-      { type: 'directional', color: [1, 1, 1], intensity: 1 },
-      { type: 'environment', color: [1, 1, 1], intensity: 1 },
-    ],
-    models: models.map(({ derivatives, annotations }) => ({
+    ...(bare ? {} : {
+      cameras: [{ type: 'perspective', perspective: { yfov: 52, znear: 0.1, zfar: 1000 }, autoNearFar: true }],
+      lights: [
+        { type: 'directional', color: [1, 1, 1], intensity: 1 },
+        { type: 'environment', color: [1, 1, 1], intensity: 1 },
+      ],
+    }),
+    models: models.map(({ derivatives, ...model }) => ({
       units: 'cm',
       derivatives: Object.entries(derivatives).map(([quality, uri]) => ({
         usage: 'Web3D', quality, assets: [{ uri, type: 'Model', mimeType: 'model/gltf-binary' }],
       })),
-      ...(annotations ? { annotations } : {}),
+      ...model,
     })),
     ...(hasMeta ? { metas: [meta] } : {}),
     setups: [{

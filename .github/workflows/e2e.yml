@@ -25,9 +25,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Holusion's fork: shared and fork-specific behavior.
+          # Holusion's fork: shared and fork-specific behavior, but not upstream changes it lacks yet.
           - voyager: master
-            args: --project core --project fork --grep-invert @pending
+            args: --project core --project fork --grep-invert "@pending|@fork-pending"
           # Upstream, as tracked by the fork: shared behavior only.
           - voyager: upstream
             args: --project core --grep-invert @pending
@@ -91,6 +91,16 @@ jobs:
             build: base
             ref: upstream
             args: --project core
+          # Smithsonian's next release: models can opt out of the slicer (#503, #508).
+          - change: rc-68
+            build: change
+            repository: https://github.com/Smithsonian/dpo-voyager
+            ref: rc-68
+            args: --project core
+          - change: rc-68
+            build: base
+            ref: upstream
+            args: --project core
     env:
       VOYAGER_DIST: .voyager/${{ matrix.build }}/dist
       VOYAGER_UNMERGED: ${{ matrix.build == 'base' && format('@pending:{0}', matrix.change) || '' }}
@@ -108,7 +118,7 @@ jobs:
 
       - name: Build Voyager ${{ matrix.ref }}
         id: build
-        run: scripts/build-voyager.sh https://github.com/Holusion/dpo-voyager ${{ matrix.ref }} .voyager/${{ matrix.build }}
+        run: scripts/build-voyager.sh ${{ matrix.repository || 'https://github.com/Holusion/dpo-voyager' }} ${{ matrix.ref }} .voyager/${{ matrix.build }}
 
       - name: Record the tested revision
         run: echo "Voyager \`${{ matrix.ref }}\` (${{ matrix.build }} of ${{ matrix.change }}) at $(git -C .voyager/${{ matrix.build }} rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
