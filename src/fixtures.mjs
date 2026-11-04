@@ -3,7 +3,7 @@ import { configuration } from './config.mjs';
 import { startServer } from './server.mjs';
 
 // Every public event documented in docs/content/explorer/api.
-const events = ['model-load', 'model-error', 'scene-content-load', 'scene-load', 'annotation-active'];
+const events = ['model-load', 'model-error', 'scene-content-load', 'scene-load', 'annotation-active', 'tour-step'];
 
 /**
  * A `<voyager-explorer>` element embedded in the host page, plus what it dispatched so far.
