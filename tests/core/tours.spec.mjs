@@ -162,3 +162,104 @@ test.describe('tours', { tag: '@pending:fix/tween-final-frame' }, () => {
     expect(await pose(explorer)).toEqual(expected.end);
   });
 });
+
+// Calling setToursEnabled(true) again during a tour saved the step on screen as the view to return to.
+test('enabling tours again during a tour keeps the view to return to', { tag: '@pending:tours-enable-twice' }, async ({ site, mount }) => {
+  const explorer = await load(site, mount);
+  const expected = await expectedPoses(explorer);
+  const next = await tourSteps(explorer);
+
+  await explorer.call('setToursEnabled', true);
+  await explorer.call('setTourStep', '0', '1');
+  expect(await next()).toEqual({ tour: 0, step: 1 });
+  await explorer.call('setToursEnabled', true);
+  await explorer.call('setToursEnabled', false);
+
+  expect(await next()).toEqual({ tour: -1, step: -1 });
+  expect(await pose(explorer)).toEqual(expected.before);
+});
+
+// The step asked for last is the one shown, however the requests fall in frames.
+test.describe('interrupting a transition', { tag: '@pending:tour-step-interrupt' }, () => {
+  test('with an instant jump in the same frame, ends on the jump', async ({ site, mount }) => {
+    const explorer = await load(site, mount);
+    const expected = await expectedPoses(explorer);
+    await explorer.call('setToursEnabled', true);
+    const next = await tourSteps(explorer);
+
+    // One task: Voyager handles both requests in the same frame.
+    await explorer.page.evaluate(() => {
+      const element = document.querySelector('voyager-explorer');
+      element.setTourStep('0', '0', true);
+      element.setTourStep('0', '1', false);
+    });
+
+    expect(await next()).toEqual({ tour: 0, step: 1 });
+    expect(await pose(explorer)).toEqual(expected.end);
+    expect(await explorer.call('getActiveTourStep')).toEqual({ tour: 0, step: 1 });
+  });
+
+  test('with an instant jump in a later frame, ends on the jump at once', async ({ site, mount }) => {
+    const explorer = await load(site, mount, { duration: 60 });
+    const expected = await expectedPoses(explorer);
+    await explorer.call('setToursEnabled', true);
+    const next = await tourSteps(explorer);
+
+    await explorer.call('setTourStep', '0', '0', true);
+    // The camera leaving its pose witnesses a transition under way, for another minute.
+    await expect.poll(() => explorer.call('getCameraOffset')).not.toEqual(poses.before.offset);
+    await explorer.call('setTourStep', '0', '1', false);
+
+    // Announced well before the interrupted transition could have ended, and only once.
+    expect(await next()).toEqual({ tour: 0, step: 1 });
+    expect(await pose(explorer)).toEqual(expected.end);
+    expect(await next.all()).toEqual([{ tour: 0, step: 1 }]);
+  });
+});
+
+// https://github.com/Holusion/eCorpus/issues/90: a tour saved without the "navigation" feature froze
+// Voyager for good. Its first step threw in the frame loop, and the loop never asked for another frame:
+// no more rendering, interaction, tour steps or saving, until the page is reloaded.
+test('a tour that leaves the camera out keeps the scene usable', { tag: '@pending:tour-without-camera' }, async ({ page, site, mount }) => {
+  const document = tourDocument();
+  // As Story saves a tour whose snapshot configuration only keeps "viewer".
+  document.setups[0].tours = [{ titles: { EN: 'Notes' }, steps: [
+    { id: 'shown', titles: { EN: 'Shown' } }, { id: 'hidden', titles: { EN: 'Hidden' } },
+  ] }];
+  document.setups[0].snapshots = {
+    features: ['viewer'],
+    targets: ['scenes/0/setup/viewer/annotationsVisible'],
+    states: [
+      { id: 'shown', values: [true], duration: 0.25, curve: 'Linear' },
+      { id: 'hidden', values: [false], duration: 0.25, curve: 'Linear' },
+    ],
+  };
+  site.set('scene.svx.json', document).set('cube.glb', cubeGLB()).set('article.html', '<p>Text</p>');
+  const explorer = await mount({ document: 'scene.svx.json', prompt: 'false' });
+  await explorer.waitForEvents('scene-load');
+  const note = explorer.locator('.sv-annotation').filter({ hasText: 'Note' });
+  const navigator = explorer.locator('sv-tour-navigator');
+  const next = await tourSteps(explorer);
+
+  await explorer.call('setToursEnabled', true);
+  await explorer.locator('sv-tour-menu .sv-entry').filter({ hasText: 'Notes' }).press('Enter');
+  expect(await next()).toEqual({ tour: 0, step: 0 });
+  await expect(note).toBeVisible();
+
+  await navigator.getByTitle('Go Forward').click();
+  expect(await next()).toEqual({ tour: 0, step: 1 });
+  await expect(note).toBeHidden();
+
+  // The visitor can still turn the model.
+  const orbit = await explorer.call('getCameraOrbit');
+  const box = await explorer.element.boundingBox();
+  const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 200, y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => explorer.call('getCameraOrbit')).not.toEqual(orbit);
+
+  await navigator.getByTitle('Exit Tour').click();
+  expect(await next()).toEqual({ tour: -1, step: -1 });
+});
