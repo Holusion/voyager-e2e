@@ -9,7 +9,18 @@ The suite favors a few strongly validated behaviors over coverage. Tests assert 
 ```sh
 npm ci
 npm run install:browsers
+# assuming voyager is checked-out in a sibling directory
+VOYAGER_DIST=../dpo-voyager/dist npm test
+```
 
+Tests can be restricted to what [Smithsonian/dpo-voyager](https://github.com/Smithsonian/dpo-voyager) supports.
+
+
+`VOYAGER_DIST` points to any built `dist` directory, for example a local checkout's own `dist/` after `npm run build-dev`. The development bundle (`js/voyager-explorer.dev.js`) is used if present, for its readable errors, otherwise the production one. `npm run test:prod` tests the production bundle (`js/voyager-explorer.min.js`), which `scripts/build-voyager.sh` builds when given `prod` or `both` as its last argument. `VOYAGER_BUNDLE` picks any other bundle of the build.
+
+It can also checkout its own copy from any repo:
+
+```sh
 # Build the Voyager revision to test into .voyager/<name>/dist
 npm run build-voyager -- https://github.com/Holusion/dpo-voyager master .voyager/master
 VOYAGER_DIST=.voyager/master/dist npm test
@@ -19,20 +30,17 @@ npm run build-voyager -- https://github.com/Holusion/dpo-voyager upstream .voyag
 VOYAGER_DIST=.voyager/upstream/dist npm run test:core
 ```
 
-`VOYAGER_DIST` points to any built `dist` directory, for example a local checkout's own `dist/` after `npm run build-dev`. The development bundle (`js/voyager-explorer.dev.js`) is used if present, for its readable errors, otherwise the production one. `npm run test:prod` tests the production bundle (`js/voyager-explorer.min.js`), which `scripts/build-voyager.sh` builds when given `prod` or `both` as its last argument. `VOYAGER_BUNDLE` picks any other bundle of the build.
-
 `scripts/build-voyager.sh <repository> <ref> <directory> [dev|prod|both]` accepts anything `git fetch` does. With a local clone, remote branches work too, e.g. `../dpo-voyager refs/remotes/origin/master`.
 
-Debugging: `npm run test:headed`, `npm run report`, or `npx playwright show-trace` on the trace kept for every failure.
+Debugging: `npm run test -- --ui`, `npm run report`, or `npx playwright show-trace` on the trace kept for every failure.
 
 ## Suites
 
 | Project | Directory | Runs against |
 | --- | --- | --- |
-| `core` | `tests/core` | both upstream and the fork |
-| `fork` | `tests/fork` | the fork only |
+| `core` | `tests/core` | both upstream and Holusion |
+| `fork` | `tests/fork` | Holusion fork only |
 
-There is deliberately no upstream-only suite. A behavior the fork doesn't support isn't tested, rather than tested only upstream.
 
 A test belongs to `core` when it passes on upstream. Upstream changes the fork doesn't share yet are tagged `@fork-pending` until the fork merges them.
 
@@ -104,7 +112,7 @@ test('example', async ({ site, mount }) => {
 });
 ```
 
-Guidelines, learned from building this suite:
+Guidelines:
 
 - Wait on events, request gates or Playwright's auto-retrying assertions, never on fixed delays.
 - Check that a new test passes on upstream *and* the fork before putting it in `core`, and that a `fork` test fails on upstream. Otherwise it belongs in `core`.
