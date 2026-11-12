@@ -40,6 +40,7 @@ export class Site {
   gates = new Map();
   #requests = new Map();
   #aborted = new Map();
+  #writes = new Map();
   #build;
   /** `build(res, path)` serves a file of the Voyager build: the site serves the build under `voyager/`. */
   constructor(base, build) {
@@ -58,6 +59,9 @@ export class Site {
 
   /** How many requests to `path` the browser gave up on before getting the whole response. */
   aborted(path) { return this.#aborted.get(path) ?? 0; }
+
+  /** Bodies PUT to `path`, oldest first, as strings. Each one is also served from then on. */
+  writes(path) { return this.#writes.get(path) ?? []; }
 
   /** Serve `body` at `path`. Objects are served as JSON. */
   set(path, body, type = types[extname(path)] ?? 'application/octet-stream') {
@@ -78,10 +82,47 @@ export class Site {
     res.on('close', () => { if (!res.writableFinished) this.#aborted.set(path, this.aborted(path) + 1); });
     await this.gates.get(path)?.pass();
     if (res.destroyed) return;
+    if (req.method === 'PUT') return this.#write(path, req, res);
+    if (req.method === 'PROPFIND') return this.#list(path, res);
     const file = this.files.get(path);
     if (!file && path.startsWith('voyager/')) return this.#build(res, path.slice('voyager/'.length));
     if (!file) return send(res, 404, `Not found: ${path}`);
     sendRange(req, res, Buffer.from(file.body), file.type);
+  }
+
+  // Story saves a document by PUTting it where it loaded it from, then reads it back.
+  async #write(path, req, res) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    this.#writes.set(path, [...this.writes(path), body.toString()]);
+    const created = !this.files.has(path);
+    this.set(path, body, req.headers['content-type']?.split(';')[0] || undefined);
+    send(res, created ? 201 : 204);
+  }
+
+  // Story's Media panel lists folders over WebDAV: a folder, then what it directly contains.
+  #list(folder, res) {
+    if (folder && !folder.endsWith('/')) folder += '/';
+    const date = new Date(0).toUTCString();
+    const entry = (name, size) => {
+      const href = new URL(encodeURI(folder + name), this.base).pathname;
+      const type = size === undefined ? '<d:collection/>' : '';
+      const length = size === undefined ? '' : `<d:getcontentlength>${size}</d:getcontentlength>`;
+      return `<d:response><d:href>${href}</d:href><d:propstat><d:prop><d:displayname>${name.replace(/\/$/, '')}</d:displayname>`
+        + `<d:creationdate>${date}</d:creationdate><d:getlastmodified>${date}</d:getlastmodified>`
+        + `<d:resourcetype>${type}</d:resourcetype>${length}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`;
+    };
+    const entries = new Map();
+    for (const [path, file] of this.files) {
+      if (!path.startsWith(folder)) continue;
+      const [name, ...rest] = path.slice(folder.length).split('/');
+      if (rest.length) entries.set(`${name}/`, undefined);
+      else entries.set(name, Buffer.byteLength(file.body));
+    }
+    const body = `<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">${entry('')}`
+      + [...entries].map(([name, size]) => entry(name, size)).join('') + '</d:multistatus>';
+    send(res, 207, body, 'application/xml; charset=utf-8');
   }
 }
 
@@ -108,10 +149,10 @@ function sendRange(req, res, body, type) {
 }
 
 /**
- * Serves a Voyager build (`/voyager/`), an embedding page (`/host.html`) and per-test sites (`/sites/<n>/`).
- * Only GET/HEAD are answered: tests never write anything.
+ * Serves a Voyager build (`/voyager/`), embedding pages for Explorer (`/host.html`) and Story (`/story.html`),
+ * and per-test sites (`/sites/<n>/`). Sites also answer what Story needs of WebDAV: PUT to save, PROPFIND to list.
  */
-export async function startServer({ dist, bundle }) {
+export async function startServer({ dist, bundle, story }) {
   const sites = new Map();
   let count = 0;
 
@@ -125,6 +166,17 @@ voyager-explorer { display: block; width: 100%; height: 100%; }</style>
 <script src="/voyager/${bundle}"></script>
 </head><body></body></html>`;
 
+  const storyHost = `<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voyager Story e2e host</title>
+<link href="/voyager/fonts/fonts.css" rel="stylesheet">
+<link href="/voyager/${story.css}" rel="stylesheet">
+<style>html, body { margin: 0; width: 100%; height: 100%; background: #303030; }
+voyager-story { width: 100%; height: 100%; }</style>
+<script src="/voyager/${story.bundle}"></script>
+</head><body></body></html>`;
+
   async function serveFile(res, path) {
     const file = join(dist, path);
     const inside = relative(dist, file);
@@ -136,12 +188,14 @@ voyager-explorer { display: block; width: 100%; height: 100%; }</style>
   }
 
   async function handle(req, res) {
-    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405);
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    const site = /^\/sites\/(\d+)\/(.*)$/.exec(pathname);
+    const webdav = ['PUT', 'PROPFIND'].includes(req.method) && site;
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !webdav) return send(res, 405);
     if (pathname === '/host.html') return send(res, 200, host, types['.html']);
+    if (pathname === '/story.html') return send(res, 200, storyHost, types['.html']);
     if (pathname === '/favicon.ico') return send(res, 204);
     if (pathname.startsWith('/voyager/')) return serveFile(res, pathname.slice('/voyager/'.length));
-    const site = /^\/sites\/(\d+)\/(.*)$/.exec(pathname);
     if (site && sites.has(site[1])) return sites.get(site[1]).serve(site[2], req, res);
     send(res, 404, `Not found: ${pathname}`);
   }

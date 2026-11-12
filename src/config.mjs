@@ -12,5 +12,8 @@ export function configuration(env = process.env) {
   const candidates = env.VOYAGER_BUNDLE ? [env.VOYAGER_BUNDLE] : bundles;
   const bundle = candidates.find(path => existsSync(join(dist, path)));
   if (!bundle) throw new Error(`No Explorer bundle in ${dist} (looked for ${candidates.join(', ')})`);
-  return { dist, bundle };
+  // Story's bundle and stylesheet, of the same flavor (dev or min) as Explorer's.
+  const storyBundle = bundle.replace('voyager-explorer', 'voyager-story');
+  const story = { bundle: storyBundle, css: storyBundle.replace(/^js\//, 'css/').replace(/\.js$/, '.css') };
+  return { dist, bundle, story };
 }

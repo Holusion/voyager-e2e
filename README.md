@@ -86,8 +86,10 @@ Pending changes aren't tracked by CI: this repository doesn't follow Voyager's b
 Each Playwright worker starts a small HTTP server (`src/server.mjs`) on loopback. It serves:
 
 - the Voyager build under test (`/voyager/`), also used as Explorer's `resourceRoot`. Otherwise Voyager fetches its fonts, images and translations from a CDN's *latest* release.
-- a host page embedding nothing but the Explorer bundle.
+- a host page embedding nothing but the Explorer bundle, and another for Story (`/story.html`).
 - one isolated *site* per test, holding the documents and models that test generated (`src/assets.mjs`). Fixtures are built in code: a flat-colored cube and complete scene documents, so each test states what it loads.
+
+A site answers what Story needs of WebDAV: it lists its files (`PROPFIND`) and stores what Story saves (`PUT`), served from then on. `site.writes(path)` returns what was saved, so Story tests check both the saved document and Story reopened on it.
 
 A site can *hold* requests to a file until the test releases them. Loading tests use that to put Voyager in a precise intermediate state, e.g. "thumbnail displayed, high quality pending", for as long as needed, without timers. A site also serves Voyager's own resources (`site.resources`, to use as `resourceRoot`), so a test can hold those too, e.g. a translation.
 

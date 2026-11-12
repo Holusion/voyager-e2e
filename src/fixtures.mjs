@@ -66,6 +66,43 @@ export class Explorer {
   }
 }
 
+/**
+ * A `<voyager-story>` editor in its own page. Unlike Explorer, it renders in light DOM.
+ */
+export class Story {
+  constructor(page) {
+    this.page = page;
+    this.element = page.locator('voyager-story');
+    this.taskBar = this.element.locator('sv-task-bar');
+  }
+
+  /** Locate something inside Story's UI. */
+  locator(selector) { return this.element.locator(selector); }
+
+  /** Open a task from the task bar, e.g. "Settings". */
+  async openTask(name) {
+    const button = this.taskBar.locator('ff-button', { hasText: name });
+    await button.click();
+    await expect(button).toHaveAttribute('selected');
+  }
+
+  /** Select a node by its name in the navigator. */
+  async selectNode(name) {
+    const node = this.locator('sv-node-tree').getByText(name, { exact: true });
+    await node.click();
+    await expect(this.locator('sv-node-tree .ff-tree-node[selected] > .ff-header').getByText(name, { exact: true })).toBeVisible();
+  }
+
+  /** An on/off property of the selected node, as the Settings task shows it. */
+  switch(name) { return this.locator('sv-settings-task-view').getByRole('switch', { name, exact: true }); }
+
+  /** Save the document where it was loaded from, and wait until Story confirms it. */
+  async save() {
+    await this.taskBar.locator('ff-button', { hasText: 'Save' }).click();
+    await expect(this.page.locator('ff-notification', { hasText: 'Successfully uploaded' })).toBeVisible();
+  }
+}
+
 export const test = base.extend({
   // One server per worker; tests get isolated sites from it.
   voyager: [async ({}, use) => {
@@ -131,6 +168,30 @@ export const test = base.extend({
         },
       });
       return new Explorer(page);
+    });
+  },
+
+  /**
+   * Open Story with the given attributes (`document`, `mode`...), with the same defaults as `mount`.
+   * Saving writes to the test's site, where `site.writes(path)` reads it back.
+   */
+  mountStory: async ({ page, site, voyager }, use) => {
+    await use(async (attributes = {}) => {
+      await page.goto('/story.html');
+      await page.evaluate(async attributes => {
+        await customElements.whenDefined('voyager-story');
+        // Story reads its attributes when constructed: build the element where it can't be,
+        // so it gets upgraded with its attributes once connected.
+        const element = document.implementation.createHTMLDocument('').createElement('voyager-story');
+        for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+        document.body.appendChild(document.adoptNode(element));
+      }, {
+        root: site.base,
+        resourceRoot: `${voyager.origin}/voyager/`,
+        dracoRoot: `${voyager.origin}/voyager/js/draco/`,
+        ...attributes,
+      });
+      return new Story(page);
     });
   },
 });
