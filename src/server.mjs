@@ -105,23 +105,25 @@ export class Site {
   #list(folder, res) {
     if (folder && !folder.endsWith('/')) folder += '/';
     const date = new Date(0).toUTCString();
-    const entry = (name, size) => {
+    // A folder has no file: Story tells files apart, e.g. articles to edit, by their content type.
+    const entry = (name, file) => {
       const href = new URL(encodeURI(folder + name), this.base).pathname;
-      const type = size === undefined ? '<d:collection/>' : '';
-      const length = size === undefined ? '' : `<d:getcontentlength>${size}</d:getcontentlength>`;
+      const type = file ? '' : '<d:collection/>';
+      const content = file ? `<d:getcontentlength>${Buffer.byteLength(file.body)}</d:getcontentlength>`
+        + `<d:getcontenttype>${file.type}</d:getcontenttype>` : '';
       return `<d:response><d:href>${href}</d:href><d:propstat><d:prop><d:displayname>${name.replace(/\/$/, '')}</d:displayname>`
         + `<d:creationdate>${date}</d:creationdate><d:getlastmodified>${date}</d:getlastmodified>`
-        + `<d:resourcetype>${type}</d:resourcetype>${length}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`;
+        + `<d:resourcetype>${type}</d:resourcetype>${content}</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`;
     };
     const entries = new Map();
     for (const [path, file] of this.files) {
       if (!path.startsWith(folder)) continue;
       const [name, ...rest] = path.slice(folder.length).split('/');
       if (rest.length) entries.set(`${name}/`, undefined);
-      else entries.set(name, Buffer.byteLength(file.body));
+      else entries.set(name, file);
     }
     const body = `<?xml version="1.0" encoding="utf-8"?><d:multistatus xmlns:d="DAV:">${entry('')}`
-      + [...entries].map(([name, size]) => entry(name, size)).join('') + '</d:multistatus>';
+      + [...entries].map(([name, file]) => entry(name, file)).join('') + '</d:multistatus>';
     send(res, 207, body, 'application/xml; charset=utf-8');
   }
 }
