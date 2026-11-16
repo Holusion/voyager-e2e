@@ -23,6 +23,27 @@ test.describe('language', () => {
     expect(await explorer.call('getActiveLanguage')).toBe('EN');
   });
 
+  test('the language menu switches the language from the keyboard', async ({ page, mount }) => {
+    const explorer = await mount({ document: 'scene.svx.json', prompt: 'false' });
+    const title = explorer.locator('.sv-main-title');
+    await expect(title).toHaveText(titles.FR);
+    const entries = explorer.locator('.sv-language-menu .sv-entry');
+
+    await explorer.locator('#language').click();
+
+    // Opens on the active language.
+    await expect(entries.filter({ hasText: 'Français' })).toBeFocused();
+    const order = await entries.allTextContents();
+    const toEnglish = order.findIndex(text => /English/.test(text)) < order.findIndex(text => /Français/.test(text)) ? 'ArrowUp' : 'ArrowDown';
+    await page.keyboard.press(toEnglish);
+    await expect(entries.filter({ hasText: 'English' })).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    await expect(title).toHaveText(titles.EN);
+    expect(await explorer.call('getActiveLanguage')).toBe('EN');
+    await expect(entries).toHaveCount(0);
+  });
+
   test('lang attribute overrides the setup language', async ({ mount }) => {
     const explorer = await mount({ document: 'scene.svx.json', lang: 'EN' });
 
