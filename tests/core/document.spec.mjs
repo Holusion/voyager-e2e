@@ -43,3 +43,12 @@ test('shows a document without camera or lights after a complete one', async ({ 
   // Lit and framed: the orange model fills the middle of the view.
   expect((await explorer.modelCoverage()).center).toBeGreaterThan(0.9);
 });
+
+test('reports a document that does not respect the schema', async ({ site, mount }) => {
+  // According to schema, narration is suposed to be a string containing an id.
+  site.set('orange.svx.json', sceneDocument({ narration: 6, titles: { EN: 'Orange' }, models: [{ derivatives: { High: 'orange.glb' } }] }));
+  const explorer = await mount({ document: 'orange.svx.json', prompt: 'false' });
+
+  await expect(explorer.locator('ff-notification')).toContainText('validation failed');
+  await expect(explorer.spinner).toBeHidden();
+});
